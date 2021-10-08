@@ -149,6 +149,7 @@ class DocumentStore(object):
 
 
     def delete_store(self, index: str):
+        """Delete store of a specified index"""
         try:
             self._es.indices.delete(index=index, ignore=[400, 404])
         except Exception as e:
