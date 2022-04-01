@@ -15,10 +15,6 @@ STOPWORDS_LANG_KEY = {
 }
 
 FRENCH_FILTERS = {
-    "french_stop": {
-        "type":       "stop",
-        "stopwords":  "_french_" 
-    },
     "french_keywords": {
         "type":       "keyword_marker",
         "keywords":   ["Example"] 

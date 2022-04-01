@@ -1,0 +1,1 @@
+# A small Elasticsearch Template
