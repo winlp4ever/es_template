@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
     
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
 
 from elasticsearch import Elasticsearch, helpers
@@ -46,7 +46,7 @@ class Document:
 
 class DocumentStore(object):
     def __init__(self, host: str):
-        self._es = Elasticsearch(host=host, maxsize=10000)
+        self._es = Elasticsearch(hosts=[host], maxsize=10000)
 
     def create_store(self, index: str, lang: str = 'en', reset_index: bool = False):
         assert lang in ('en', 'fr')
@@ -96,10 +96,29 @@ class DocumentStore(object):
             "mappings": {
                 "properties": {
                     "text": { "type": "text", "analyzer": "std_preprocess" }, # text field that will be analyzed
+                    "as_is": { "type": "text" }
                 }
             }
         })
 
+    def suggest(
+        self,
+        index: str,
+        query_string: str
+    ) -> List[Dict[str, Union[str, float]]]:
+        """Suggest corrections to a query"""
+        query = {
+            "suggest" : {
+                "query_suggestion" : {
+                    "text" : query_string,
+                    "term" : {
+                        "field" : "as_is"
+                    }
+                }
+            }
+        }
+        res = self._es.search(index=index, body=query)
+        return res['suggest']['query_suggestion']
 
     def search_by_word_matching(
         self, 
@@ -155,6 +174,7 @@ class DocumentStore(object):
         """Add a document to an es index"""
         self._es.index(index=index, body={
             'text': document.text,
+            'as_is': document.text
         }, id=document.id)
 
     def add_documents(self, index: str, documents: List[Document]):
@@ -165,18 +185,23 @@ class DocumentStore(object):
             '_id': p.id,
             '_source': {
                 'text': p.text,
+                'as_is': p.text
             }
         } for p in documents]
         helpers.bulk(self._es, actions)
 
     def update_document(self, index: str, document: Document):
         """Update document of a specified id (found in document instance). The field id therefore must not be None"""
-        self._es.update(index=index, id=document.id, body={ 'doc': { 'text': document.text, 'metadata': document.meta } })
+        self._es.update(
+            index=index, 
+            id=document.id, 
+            body={ 'doc': { 'text': document.text, 'as_is': document.text } }
+        )
 
     def get(self, index: str, id: int) -> Document:
         """Get the document of a given id"""
         doc = self._es.get(index=index, id=id)
-        return Document(text=doc['_source']['text'], id=doc['_id'], meta=doc['_source']['metadata'])
+        return Document(text=doc['_source']['text'], id=doc['_id'])
 
     def get_all(self, index: str) -> List[Document]:
         """Get all documents in a given index"""
