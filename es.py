@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
     
 import logging
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Tuple
 from dataclasses import dataclass
 
 from elasticsearch import Elasticsearch, helpers
@@ -105,20 +105,25 @@ class DocumentStore(object):
         self,
         index: str,
         query_string: str
-    ) -> List[Dict[str, Union[str, float]]]:
+    ) -> Tuple[List[Dict[str, Union[str, float]]], List[Dict[str, Union[str, float]]]]:
         """Suggest corrections to a query"""
         query = {
             "suggest" : {
+                "text" : query_string,
                 "query_suggestion" : {
-                    "text" : query_string,
                     "term" : {
                         "field" : "as_is"
+                    }
+                },
+                "query_lemma_suggestion": {
+                    "term": {
+                        "field": "text"
                     }
                 }
             }
         }
         res = self._es.search(index=index, body=query)
-        return res['suggest']['query_suggestion']
+        return res['suggest']['query_suggestion'], res['suggest']['query_lemma_suggestion']
 
     def search_by_word_matching(
         self, 
