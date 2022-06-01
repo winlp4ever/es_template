@@ -5,8 +5,11 @@ from __future__ import print_function
 import logging
 from typing import List, Dict, Any, Optional, Union, Tuple
 from dataclasses import dataclass
+from enum import Enum
 
 from elasticsearch import Elasticsearch, helpers
+
+from .passage_ranking import Ranker
 
 
 STOPWORDS_LANG_KEY = {
@@ -44,7 +47,16 @@ class Document:
     id: Optional[int] = None
 
 
+@dataclass
+class SearchResult:
+    paragraph: Document
+    highlight: str
+    score: float
+
+
 class DocumentStore(object):
+    """A class that wraps an Elasticsearch inside to create a search engine for a specific corpus
+    """
     def __init__(self, host: str):
         self._es = Elasticsearch(hosts=[host], maxsize=10000)
 
@@ -125,11 +137,21 @@ class DocumentStore(object):
         res = self._es.search(index=index, body=query)
         return res['suggest']['query_suggestion'], res['suggest']['query_lemma_suggestion']
 
-    def search_by_word_matching(
+    @staticmethod
+    def _convert_hit_to_document(hit: dict) -> Document:
+        """Convert a search hit into a paragraph"""
+        return Document(
+            text=hit['_source']['text'],
+            id=hit['_id']
+        )
+
+    def search(
         self, 
         index: str,
-        query_string: str
-    ):
+        query_string: str,
+        topk: int = 3,
+        ranker: Optional[Ranker] = None
+    ) -> List[SearchResult]:
         """search by word matching
 
         Arguments:
@@ -139,6 +161,7 @@ class DocumentStore(object):
             List[Dict] -- similar texts
         """
         query = {
+            "size": topk,
             "query": { 
                 "multi_match": {
                     "query": "*%s*" % query_string,
@@ -160,13 +183,18 @@ class DocumentStore(object):
         res = self._es.search(index=index, body=query)
         rep = []
         for h in res['hits']['hits']:
-            rep.append({ 
-                "text": h['_source']['text'],
-                "score": h['_score'],
-                "highlight": h["highlight"]["text"]
-            })
+            rep.append(SearchResult(
+                paragraph=DocumentStore._convert_hit_to_document(h), 
+                score=h['_score'],
+                highlight=h["highlight"]["text"]
+            ))
+        if ranker:
+            logging.info("Score passages...")
+            scores = ranker.evaluate(query_string, [s.paragraph.text for s in rep])
+            for h, sc in zip(rep, scores):
+                h.score = sc
+            rep.sort(key=lambda s: s.score, reverse=True)
         return rep
-
 
     def delete_store(self, index: str):
         """Delete store of a specified index"""
@@ -179,8 +207,8 @@ class DocumentStore(object):
         """Add a document to an es index"""
         self._es.index(index=index, body={
             'text': document.text,
-            'as_is': document.text
-        }, id=document.id)
+            'as_is': document.text,
+        }, id=document.id, refresh=True)
 
     def add_documents(self, index: str, documents: List[Document]):
         """Bulk action. Prefer this method to calling the previous add_document method multiple time.
@@ -193,25 +221,30 @@ class DocumentStore(object):
                 'as_is': p.text
             }
         } for p in documents]
-        helpers.bulk(self._es, actions)
+        helpers.bulk(self._es, actions, refresh=True)
 
     def update_document(self, index: str, document: Document):
         """Update document of a specified id (found in document instance). The field id therefore must not be None"""
         self._es.update(
             index=index, 
             id=document.id, 
-            body={ 'doc': { 'text': document.text, 'as_is': document.text } }
+            body={ 'doc': { 'text': document.text, 'as_is': document.text } },
+            refresh=True
         )
 
     def get(self, index: str, id: int) -> Document:
         """Get the document of a given id"""
         doc = self._es.get(index=index, id=id)
-        return Document(text=doc['_source']['text'], id=doc['_id'])
+        return DocumentStore._convert_hit_to_document(doc)
+
+    def index_size(self, index: str) -> int:
+        """Get total number of paragraph inside the index"""
+        return self._es.indices.stats(index=index)['_all']['total']['docs']['count']
 
     def get_all(self, index: str) -> List[Document]:
         """Get all documents in a given index"""
         res = self._es.search(index=index, body={ "size": 10000, "query": { "match_all": {} } })
         rep: List[Document] = []
         for doc in res["hits"]["hits"]:
-            rep.append(Document(text=doc['_source']['text'], id=doc['_id']))
+            rep.append(DocumentStore._convert_hit_to_document(doc))
         return rep
