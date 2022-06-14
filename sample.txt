@@ -1,2 +1,2 @@
-Quel est le capital minimum d'une SA ?
-Qu’est-ce qu’un contrat de capitalisation ?
+machine learning
+deep learning
