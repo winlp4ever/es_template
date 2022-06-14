@@ -54,6 +54,12 @@ class SearchResult:
     score: float
 
 
+INTERROGATIVE_TERMS = {
+    "en": [ "what", "where", "which", "who", "whose", "whom", "how", "def", "definition" ],
+    "fr": [ "quoi", "qui", "où", "combien", "comment", "quel", "quelle", "quels", "quelles", "qu'"]
+}
+
+
 class DocumentStore(object):
     """A class that wraps an Elasticsearch inside to create a search engine for a specific corpus
     """
@@ -70,6 +76,7 @@ class DocumentStore(object):
                 "elision",
                 "lowercase",
                 "stopword_filter",
+                "custom_word_filter",
                 "french_stemmer",
                 "asciifolding",
                 "trim",
@@ -80,6 +87,7 @@ class DocumentStore(object):
             filters_list = [
                 "lowercase",
                 "stopword_filter",
+                "custom_word_filter",
                 "english_stemmer",
                 "asciifolding",
                 "trim",
@@ -93,6 +101,11 @@ class DocumentStore(object):
                         "stopword_filter": {
                             "type": "stop",
                             "stopwords": STOPWORDS_LANG_KEY[lang],
+                            "ignore_case": True
+                        },
+                        "custom_word_filter": {
+                            "type": "stop",
+                            "stopwords": INTERROGATIVE_TERMS[lang],
                             "ignore_case": True
                         },
                         **additional_filters
